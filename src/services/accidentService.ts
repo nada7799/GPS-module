@@ -1,4 +1,4 @@
-import { Location, Geofence } from '../types';
+
 import { notifyNearbyUsers } from '../utils/notifications';
 
 export const processAccident = async (longitude: number,latitude: number, severity: string) => {
