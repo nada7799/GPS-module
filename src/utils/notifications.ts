@@ -1,6 +1,5 @@
 import { admin, firestore } from '../database/firebase';
 import {redis} from '../redis/redis'
-
 async function testRedisConnection() {
   try {
     console.log('Testing Redis connection...');
@@ -50,30 +49,64 @@ export const notifyNearbyUsers = async (longitude:number, latitude:number) => {
         const nearbyFcmTokens = await getNearbyFcmTokens(latitude, longitude, 1);
         console.timeEnd('getNearbyUsers'); 
         console.log(nearbyFcmTokens)
-        //sendNotification(nearbyFcmTokens,longitude,latitude);
+        const nearbyFcmTokensHard = ["e4bwEL26R0K0vyt41im3XP:APA91bGLtx9EIvV--dU4eXFNpkN9zIA6zxWORNIX0BqFWY7fpwbrSnZFVkHP98fpZpnUBGMjk2bS3Vgb52w6zvyzv4H0Z3YMgClMDOCjXWfXWgyPp6nsbPc"]
+        sendNotification(nearbyFcmTokensHard,longitude,latitude);
     } catch (error) {
         console.error('Error fetching users in radius:', error);
         throw new Error((error as Error).message);
     }
 };
 
-const sendNotification = async (fcmTokens:string[],longitude:number,latitude:number) => {
 
-    const payload = {
-        notification: {
-          title: '🚨 Accident Alert!',
-          body: `An accident was reported near you. Stay alert & help if possible!`,
-        },
-        data: {
-          latitude: latitude.toString(),
-          longitude: longitude.toString(),
+
+const sendNotification = async (fcmTokens: string[], longitude: number, latitude: number) => {
+  if (fcmTokens.length === 0) {
+    console.log("❌ No FCM tokens provided.");
+    return;
+  }
+
+  // Firebase allows max 500 tokens per request
+  const chunkSize = 500;
+  for (let i = 0; i < fcmTokens.length; i += chunkSize) {
+    const chunk = fcmTokens.slice(i, i + chunkSize);
+
+    const message = {
+      tokens: chunk, // Firebase requires this inside `message`
+      notification: {
+        title: "🚨 Accident Alert!",
+        body: "An accident was reported near you. Stay alert & help if possible!",
+      },
+      data: {
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+      },
+    };
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast(message);
+
+      console.log(`✅ Sent notifications to ${chunk.length} users`);
+
+      // Remove invalid tokens from DB if necessary
+      if (response.failureCount > 0) {
+        const failedTokens: string[] = [];
+        response.responses.forEach((resp: { success: any; }, index: number) => {
+          if (!resp.success) {
+            console.error(`❌ Failed to send notification to: ${chunk[index]}`);
+            failedTokens.push(chunk[index]);
+          }
+        });
+        // Handle invalid tokens (e.g., remove from DB)
+        if (failedTokens.length > 0) {
+          console.log("🚨 Invalid tokens:", failedTokens);
+          // Remove these tokens from your database if necessary
         }
-      };
-    
-      await admin.messaging().sendMulticast({
-        tokens: fcmTokens,
-        ...payload
-      });
-    
-      console.log(`✅ Sent notifications to ${fcmTokens.length} users`);
+      }
+    } catch (error) {
+      console.error("❌ Error sending notification:", error);
+    }
+  }
 };
+
+export default sendNotification;
